@@ -1,0 +1,164 @@
+
+import requests
+import datetime
+import sqlite3
+import snmp_agent
+import asyncio
+import time
+from datetime import datetime
+
+
+boot = datetime.now()
+
+#zerohora = datetime.now().replace(day=26,hour=0, minute=0, second=0, microsecond=0)
+print("boot do sistema",boot)
+
+
+
+async def bd(temp =0,umi=0):
+
+
+
+
+    data_e_hora_atuais = datetime.now()
+    data_e_hora_em_texto = data_e_hora_atuais.strftime('%d/%m/%Y %H:%M')
+    coluna2 = 2222
+    dados = data_e_hora_em_texto
+    banco = sqlite3.connect('clientes.db')
+    cursor = banco.cursor()
+    #cursor.execute("CREATE TABLE temperaturas (temperatura text,umidade integer,dados text)")
+    cursor.execute("INSERT INTO clientes VALUES ('" + temp + "'," + (umi) + ",'" + dados + "')")
+    banco.commit()
+
+    banco = sqlite3.connect('clientes.db')
+    # definindo um cursor
+    cursor = banco.cursor()
+
+    # SELECT temperatura, umidade FROM clientes ORDER BY temperatura DESC LIMIT 1
+    cursor.execute("""
+    SELECT temperatura, umidade FROM clientes ORDER BY _rowid_ DESC LIMIT 1
+
+    """)
+    banco.commit()
+    global dadosdobd
+    dadosdobd = (cursor.fetchone())
+
+    print('\nTemperatura atual é:', dadosdobd[0], 'Graus')
+
+    print('\nUmidade relativa atual é:', dadosdobd[1], '%' )
+
+    print('\ninformação registrada em:', dados, 'Horas')
+
+    banco.close()
+
+
+
+
+async def atualiza_dados():
+
+
+    #while 1:
+        #time.sleep(2)
+        resposta = requests.get('http://192.168.100.19/')
+        dados = resposta.text
+        dados_separados = dados.split("e")
+        for val in dados_separados:
+            temp = dados_separados[1]
+            umid = dados_separados[0]
+            dados_separados[0] = str(umid[0:2])
+            dados_separados[1] = str(temp[0:2])
+
+
+
+
+        await bd(dados_separados[1],dados_separados[0])
+        return dados_separados
+
+async def uptime():
+    global delta2
+    horaagora = datetime.now()
+    delta = horaagora - boot #subtrai a hora atual menos a hora que o sistema ligou
+    print("quantidade de segundos do boot", delta.seconds)
+    delta1 = delta.seconds ## unidade em segundos para uso geral
+    delta2 = (delta.seconds * 100) ## unidade convertida para timeticks para o SNMP
+    delta3 = int(delta2)
+
+
+    print("segundos vezes 100 delta 2:", delta2)
+    print("segundos vezes 100 delta 3:", delta3)
+
+
+async def handler(req: snmp_agent.SNMPRequest) -> snmp_agent.SNMPResponse:
+    var1 = 'teste do regresso'
+    var2 = await atualiza_dados()
+    umid = int(var2[0])
+    temp = int(var2[1])
+    tempo = time.time()
+    tempo = (int(tempo))
+    now = datetime.now()
+    temps2 = datetime.timestamp(now)
+    temps2 = (int(temps2))
+    #print ('o valor atual da umidade é:',umid, '%')
+    #print('o valor atual da temperatura é:',temp, 'graus' )
+
+
+
+
+
+
+    #print('tipo de dado',(delta[2]))
+    #print('UPTIME em segundos',(delta))
+
+    #centesimo = ('tipo de dado'((type),delta * 100))
+    #print('valor em centezimos', centesimo)
+
+
+
+    await uptime()
+
+
+
+
+
+    vbs = [
+        snmp_agent.VariableBinding(
+            '1.3.6.1.2.1.1.1.0', snmp_agent.OctetString(var1)),
+        snmp_agent.VariableBinding(
+            '1.3.6.1.2.1.1.3.0', snmp_agent.TimeTicks(delta2)),
+        snmp_agent.VariableBinding(
+            '1.3.6.1.2.1.2.2.1.1.1', snmp_agent.Integer(dadosdobd[0])),
+        snmp_agent.VariableBinding(
+            '1.3.6.1.2.1.2.2.1.1.2', snmp_agent.Integer(dadosdobd[1])),
+        snmp_agent.VariableBinding(
+            '1.3.6.1.2.1.2.2.1.2.1', snmp_agent.OctetString('interface de teste')),
+        snmp_agent.VariableBinding(
+            '1.3.6.1.2.1.2.2.1.5.1', snmp_agent.Gauge32(dadosdobd[0])),
+        snmp_agent.VariableBinding(
+            '1.3.6.1.2.1.2.2.1.10.1', snmp_agent.Counter32(1000)),
+        snmp_agent.VariableBinding(
+            '1.3.6.1.2.1.2.2.1.16.1', snmp_agent.Counter32(1000)),
+        snmp_agent.VariableBinding(
+            '1.3.6.1.2.1.31.1.1.1.6.1', snmp_agent.Counter64(temps2)),
+        snmp_agent.VariableBinding(
+            '1.3.6.1.2.1.31.1.1.1.10.1', snmp_agent.Counter64(1000)),
+        snmp_agent.VariableBinding(
+            '1.3.6.1.2.1.4.20.1.1.10.0.0.1', snmp_agent.IPAddress('10.0.0.1')),
+    ]
+    res_vbs = snmp_agent.utils.handle_request(req=req, vbs=vbs)
+    res = req.create_response(res_vbs)
+    return res
+
+async def main():
+    sv = snmp_agent.Server(handler=handler, host='192.168.100.4')
+    await sv.start()
+    while True:
+        await asyncio.sleep(200)
+
+loop = asyncio.get_event_loop()
+loop.run_until_complete(main())
+
+
+#threading.Thread(target=main).start()
+
+
+#### atualizado com função de uptime
